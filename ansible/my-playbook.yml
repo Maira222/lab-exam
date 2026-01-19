@@ -1,0 +1,120 @@
+---
+- name: Configure EC2 Web Server with Apache HTTPD
+  hosts: ec2
+  become: true
+
+  tasks:
+    - name: Update all packages
+      yum:
+        name: '*'
+        state: latest
+
+    - name: Stop Nginx service if present
+      service:
+        name: nginx
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Uninstall Nginx if present
+      yum:
+        name: nginx
+        state: absent
+      ignore_errors: yes
+
+    - name: Install Apache HTTPD
+      yum:
+        name: httpd
+        state: present
+
+    - name: Start and enable Apache HTTPD
+      service:
+        name: httpd
+        state: started
+        enabled: yes
+
+    - name: Get IMDSv2 token
+      uri:
+        url: http://169.254.169.254/latest/api/token
+        method: PUT
+        headers:
+          X-aws-ec2-metadata-token-ttl-seconds: "21600"
+        return_content: yes
+      register: imds_token
+
+    - name: Fetch public IP from IMDSv2
+      uri:
+        url: http://169.254.169.254/latest/meta-data/public-ipv4
+        method: GET
+        headers:
+          X-aws-ec2-metadata-token: "{{ imds_token.content }}"
+        return_content: yes
+      register: public_ipv4
+
+    - name: Fetch public hostname from IMDSv2
+      uri:
+        url: http://169.254.169.254/latest/meta-data/public-hostname
+        method: GET
+        headers:
+          X-aws-ec2-metadata-token: "{{ imds_token.content }}"
+        return_content: yes
+      register: public_hostname
+
+    - name: Display public IP
+      debug:
+        msg: "Instance public IP: {{ public_ipv4.content }}"
+
+    - name: Display public hostname
+      debug:
+        msg: "Instance public hostname: {{ public_hostname.content }}"
+
+    - name: Create Apache welcome page
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>MairaMalik's Apache Web Server</title>
+              <style>
+                  body {
+                      font-family: Arial, sans-serif;
+                      display: flex;
+                      justify-content: center;
+                      align-items: center;
+                      height: 100vh;
+                      margin: 0;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  }
+                  .container {
+                      text-align: center;
+                      background: white;
+                      padding: 50px;
+                      border-radius: 10px;
+                      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+                  }
+                  h1 {
+                      color: #333;
+                      margin: 0;
+                  }
+                  p {
+                      color: #666;
+                      font-size: 18px;
+                      margin: 10px 0 0 0;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>🚀 Welcome!</h1>
+                  <p>This is MairaMalik's Apache Web Server</p>
+                  <p><strong>Managed with Ansible</strong></p>
+                  <p>Public IP: {{ public_ipv4.content }}</p>
+              </div>
+          </body>
+          </html>
+        dest: /var/www/html/index.html
+
+    - name: Restart Apache HTTPD
+      service:
+        name: httpd
+        state: restarted
